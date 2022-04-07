@@ -1,45 +1,45 @@
 package me.illusion.skyblockcore.spigot.command;
 
-import me.illusion.skyblockcore.shared.utilities.StringUtil;
 import me.illusion.skyblockcore.spigot.SkyblockPlugin;
-import me.illusion.skyblockcore.spigot.command.comparison.ComparisonResult;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.defaults.BukkitCommand;
+import org.bukkit.command.TabCompleter;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
 
-public class BaseCommand extends BukkitCommand {
+public class BaseCommand implements CommandExecutor, TabCompleter {
 
     private final SkyblockPlugin main;
-    private final Map<String, SkyblockCommand> commands = new HashMap<>();
 
-    protected BaseCommand(String name, SkyblockPlugin main) {
-        super(name);
+    public BaseCommand(SkyblockPlugin main) {
         this.main = main;
     }
 
     @Override
-    public List<String> tabComplete(CommandSender sender, String name, String[] args) throws IllegalArgumentException {
-        List<String> list = new ArrayList<>();
+    public List<String> onTabComplete(CommandSender sender, Command cmd, String name, String[] args) throws IllegalArgumentException {
+        System.out.println("tab completing this shit");
 
         if (args.length == 0)
             return Collections.emptyList();
 
         String identifier = String.join(".", name, String.join(".", args));
 
-        for (Map.Entry<String, SkyblockCommand> entry : commands.entrySet()) {
-            ComparisonResult result = new ComparisonResult(identifier, entry.getKey(), entry.getValue().getAliases());
-            
-            if (result.isPartiallyMatches())
-                list.add(getWordToMatch(entry.getKey(), args[args.length - 1]));
-        }
+        // Remove trailing dots
+        while (identifier.endsWith("."))
+            identifier = identifier.substring(0, identifier.length() - 1);
 
-        return list;
+        return main.getCommandManager().tabComplete(identifier);
     }
 
     @Override
-    public boolean execute(CommandSender sender, String name, String[] args) {
+    public boolean onCommand(CommandSender sender, Command cmd, String name, String[] args) {
         String identifier = String.join(".", name, String.join(".", args));
+
+        // Remove trailing dots
+        while (identifier.endsWith("."))
+            identifier = identifier.substring(0, identifier.length() - 1);
 
         SkyblockCommand command = main.getCommandManager().get(identifier);
 
@@ -60,27 +60,17 @@ public class BaseCommand extends BukkitCommand {
             return true;
         }
 
-        ComparisonResult result = new ComparisonResult(identifier, command.getIdentifier(), command.getAliases());
-        int[] wildcards = result.getWildcardPositions();
-        int length = wildcards.length;
-        String[] cmdArgs = new String[length];
 
-        for (int i = 0; i < length; i++)
-            cmdArgs[i] = args[wildcards[i]];
+        List<Integer> wildcards = command.getWildcards();
 
-        command.execute(sender, cmdArgs);
+        String[] commandArgs = new String[wildcards.size()];
+
+        for (int index = 0; index < wildcards.size(); index++)
+            commandArgs[index] = args[wildcards.get(index) - 1];
+
+        command.execute(sender, commandArgs);
         return true;
     }
 
-    private String getWordToMatch(String input, String commandIdentifier) {
-        String[] identifierSplit = StringUtil.split(commandIdentifier, '.');
-        String[] inputSplit = StringUtil.split(input, '.');
 
-        return identifierSplit[inputSplit.length - 1];
-    }
-
-
-    public void registerCommand(SkyblockCommand command) {
-        commands.put(command.getIdentifier(), command);
-    }
 }

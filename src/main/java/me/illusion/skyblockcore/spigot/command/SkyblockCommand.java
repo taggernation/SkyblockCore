@@ -2,10 +2,15 @@ package me.illusion.skyblockcore.spigot.command;
 
 import org.bukkit.command.CommandSender;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 public interface SkyblockCommand {
 
     /**
-     * The command identifier, use a . to separate subcommands
+     * The command identifier, use a '.' to separate subcommands
      * Example: island.teleport
      *
      * @return identifier
@@ -18,7 +23,7 @@ public interface SkyblockCommand {
      * @return NULL if no aliases are present
      */
     default String[] getAliases() {
-        return null;
+        return new String[0];
     }
 
     /**
@@ -44,6 +49,10 @@ public interface SkyblockCommand {
         return getPermission().isEmpty();
     }
 
+    default Map<Integer, List<String>> tabCompleteWildcards() {
+        return new HashMap<>(0);
+    }
+
     /**
      * Executes the command
      *
@@ -51,4 +60,19 @@ public interface SkyblockCommand {
      * @param args   - The arguments external to the identifier
      */
     void execute(CommandSender sender, String... args);
+
+    default List<Integer> getWildcards() {
+        String identifier = getIdentifier();
+        List<Integer> wildcards = new ArrayList<>();
+
+        String[] split = identifier.split("\\.");
+
+        for (int index = 0; index < split.length; index++) {
+            if (split[index].equals("*")) {
+                wildcards.add(index);
+            }
+        }
+
+        return wildcards;
+    }
 }

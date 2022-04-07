@@ -1,14 +1,19 @@
 package me.illusion.skyblockcore.shared.packet;
 
+import lombok.Getter;
 import me.illusion.skyblockcore.shared.packet.data.PacketDirection;
-import me.illusion.skyblockcore.shared.packet.impl.proxy.proxy.request.PacketRequestMessageSend;
-import me.illusion.skyblockcore.shared.packet.impl.proxy.proxy.response.PacketRespondServer;
+import me.illusion.skyblockcore.shared.packet.data.ProxyToProxyPacket;
+import me.illusion.skyblockcore.shared.packet.data.ProxyToServerPacket;
+import me.illusion.skyblockcore.shared.packet.impl.proxytoproxy.request.PacketRequestMessageSend;
+import me.illusion.skyblockcore.shared.packet.impl.proxytoproxy.response.PacketRespondServer;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
 public class PacketManager {
@@ -19,9 +24,17 @@ public class PacketManager {
 
     private final PacketWaiter waiter;
 
-    public PacketManager() {
+    @Getter
+    private static String serverIdentifier;
+
+    public PacketManager(String serverIdentifier) { // Bungee constructor
         registerIds();
         waiter = new PacketWaiter(this);
+        PacketManager.serverIdentifier = serverIdentifier;
+    }
+
+    public static void setServerIdentifier(String serverIdentifier) {
+        PacketManager.serverIdentifier = serverIdentifier;
     }
 
     /**
@@ -88,6 +101,9 @@ public class PacketManager {
      * @param processor - The packet processor
      */
     public void registerProcessor(PacketDirection direction, PacketProcessor processor) {
+        if (processor == null)
+            return;
+
         List<PacketProcessor> list = processors.getOrDefault(direction, null);
 
         if (list == null) {
@@ -103,21 +119,24 @@ public class PacketManager {
      *
      * @param packet - The packet to send
      */
-    public void send(Packet packet) {
+    public CompletableFuture<Void> send(Packet packet) {
         PacketDirection direction = packet.getDirection();
         List<PacketProcessor> processors = getProcessors(direction);
 
-        for (PacketProcessor processor : processors)
-            processor.send(packet);
+        return CompletableFuture.runAsync(() -> {
+            for (PacketProcessor processor : processors)
+                processor.send(packet);
 
-        byte id = packet.getIdentifier();
-        List<PacketHandler<Packet>> handler = handlers.get(id);
+            byte id = packet.getIdentifier();
 
-        if (handler == null)
-            return;
+            List<PacketHandler<Packet>> handler = handlers.get(id);
 
-        for (PacketHandler<Packet> packetHandler : handler)
-            packetHandler.onSend(packet);
+            if (handler == null)
+                return;
+
+            for (PacketHandler<Packet> packetHandler : handler)
+                packetHandler.onSend(packet);
+        });
     }
 
     /**
@@ -139,8 +158,29 @@ public class PacketManager {
     public Packet read(byte[] bytes) {
         Class<? extends Packet> type = getPacketClass(bytes[0]);
 
+        if (type == null) {
+            // System.out.println("Unknown packet type: 0x" + HexUtil.bytesToHex(bytes[0])); - Will get spammy
+            return null;
+        }
         try {
             Packet packet = type.getConstructor(byte[].class).newInstance(bytes);
+
+            if (packet instanceof ProxyToServerPacket) {
+                ProxyToServerPacket proxyToServerPacket = (ProxyToServerPacket) packet;
+
+                if (!proxyToServerPacket.getTargetServer().equalsIgnoreCase("null") &&
+                        !proxyToServerPacket.getTargetServer().equalsIgnoreCase(serverIdentifier))
+                    return null;
+            }
+
+            if (packet instanceof ProxyToProxyPacket) {
+                ProxyToProxyPacket proxyToProxyPacket = (ProxyToProxyPacket) packet;
+                if (!proxyToProxyPacket.getTargetProxy().equalsIgnoreCase("null") &&
+                        !proxyToProxyPacket.getTargetProxy().equalsIgnoreCase(serverIdentifier))
+                    return null;
+            }
+
+
             List<PacketHandler<Packet>> handler = handlers.get(bytes[0]);
 
             if (handler != null)
@@ -149,7 +189,7 @@ public class PacketManager {
 
             return packet;
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
-            e.printStackTrace();
+            ExceptionLogger.log(e);
         }
 
         return null;
@@ -193,4 +233,5 @@ public class PacketManager {
     public <T extends Packet> T await(Class<T> packetClass, Predicate<T> returnIf, int timeoutSeconds) {
         return waiter.await(packetClass, returnIf, timeoutSeconds);
     }
+
 }

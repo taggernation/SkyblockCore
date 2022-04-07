@@ -2,6 +2,7 @@ package me.illusion.skyblockcore.spigot.pasting.handler;
 
 import lombok.SneakyThrows;
 import me.illusion.skyblockcore.shared.storage.SerializedFile;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 import me.illusion.skyblockcore.spigot.SkyblockPlugin;
 import me.illusion.skyblockcore.spigot.island.Island;
 import me.illusion.skyblockcore.spigot.pasting.PastingHandler;
@@ -13,7 +14,7 @@ import org.bukkit.Location;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import static me.illusion.skyblockcore.spigot.pasting.PastingType.FAWE;
@@ -37,21 +38,18 @@ public class FAWEHandler implements PastingHandler {
 
     @SneakyThrows
     private void paste(SerializedFile serializedFile, Location loc) {
-        File file = null;
-        try {
-            file = serializedFile.getFile().get();
-        } catch (InterruptedException | ExecutionException e) {
-            e.printStackTrace();
-        }
-
-        provider.paste(file, loc);
+        serializedFile
+                .getFile()
+                .thenAccept(file -> provider.paste(file, loc));
     }
 
 
     @Override
-    public void paste(SerializedFile[] file, Location loc) {
+    public CompletableFuture<Void> paste(SerializedFile[] file, Location loc) {
         for (SerializedFile f : file)
             paste(f, loc);
+
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
@@ -62,7 +60,7 @@ public class FAWEHandler implements PastingHandler {
             try {
                 file.createNewFile();
             } catch (IOException e) {
-                e.printStackTrace();
+                ExceptionLogger.log(e);
             }
         }
 
@@ -81,5 +79,10 @@ public class FAWEHandler implements PastingHandler {
     @Override
     public PastingType getType() {
         return FAWE;
+    }
+
+    @Override
+    public boolean requiresLoadedWorld() {
+        return true;
     }
 }

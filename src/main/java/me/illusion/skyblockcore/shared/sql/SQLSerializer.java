@@ -1,13 +1,13 @@
 package me.illusion.skyblockcore.shared.sql;
 
-import com.mysql.jdbc.MySQLConnection;
-import me.illusion.skyblockcore.shared.utilities.StringUtil;
+import lombok.SneakyThrows;
+import me.illusion.skyblockcore.shared.storage.StorageUtils;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 
-import java.io.ByteArrayInputStream;
-import java.io.ObjectInputStream;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -25,19 +25,21 @@ public final class SQLSerializer {
      * @param connection        - The SQL connection
      * @param objectToSerialize - The object to serialize
      */
+    @SneakyThrows
     public static void serialize(Connection connection, UUID uuid, Object objectToSerialize, String table) {
-        String operation = connection instanceof MySQLConnection ? SQL_SERIALIZE_OBJECT : SQLITE_SERIALIZE_OBJECT;
+        // there is only 1 sqlite but 20 different types of sql serveresult, so we check for sqlite firesultt
+        String operation = !connection.getMetaData().getDatabaseProductName().contains("SQLite") ? SQL_SERIALIZE_OBJECT : SQLITE_SERIALIZE_OBJECT;
 
-        try (PreparedStatement pstmt = connection
-                .prepareStatement(StringUtil.replaceFirst(operation, '?', table))) {
+        try (PreparedStatement statement = connection
+                .prepareStatement(operation)) {
 
-            pstmt.setString(1, uuid.toString());
-            pstmt.setString(2, objectToSerialize.getClass().getName());
-            pstmt.setObject(3, objectToSerialize);
-            pstmt.executeUpdate();
+            statement.setString(1, table);
+            statement.setString(2, uuid.toString());
+            statement.setBytes(3, StorageUtils.getBytes(objectToSerialize));
+            statement.executeUpdate();
 
         } catch (Exception e) {
-            e.printStackTrace();
+            ExceptionLogger.log(e);
         }
     }
 
@@ -47,46 +49,42 @@ public final class SQLSerializer {
      * @param connection - The SQL connection
      * @return deserialized object
      */
+
     public static CompletableFuture<Object> deserialize(Connection connection, UUID uuid, String table) {
         return CompletableFuture.supplyAsync(() -> {
-            PreparedStatement pstmt;
-            ResultSet rs;
-            ObjectInputStream objectIn = null;
+            PreparedStatement statement = null;
+            ResultSet result = null;
 
             Object deSerializedObject = null;
 
             try {
-                pstmt = connection.prepareStatement(StringUtil.replaceFirst(SQL_DESERIALIZE_OBJECT, '?', table));
-                pstmt.setString(1, uuid.toString());
+                statement = connection.prepareStatement(SQL_DESERIALIZE_OBJECT);
+                statement.setString(1, table);
+                statement.setString(2, uuid.toString());
 
-                rs = pstmt.executeQuery();
+                result = statement.executeQuery();
 
-                if (!rs.next())
+                if (!result.next())
                     return null;
 
-                // Object object = rs.getObject(1);
-
-                byte[] buf = rs.getBytes(1);
-                if (buf != null)
-                    objectIn = new ObjectInputStream(new ByteArrayInputStream(buf));
-
-                deSerializedObject = objectIn.readObject();
+                deSerializedObject = StorageUtils.getObject(result.getBytes(1));
             } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                try {
-                    if (objectIn != null)
-                        objectIn.close();
-                    //if (rs != null && !rs.isClosed())
-                    //    rs.close();
-                    //if (pstmt != null && !pstmt.isClosed())
-                    //    pstmt.close();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                ExceptionLogger.log(e);
+            }
 
+            try {
+                if (statement != null)
+                    statement.close();
+                if (result != null)
+                    result.close();
+            } catch (SQLException e) {
+                ExceptionLogger.log(e);
             }
             return deSerializedObject;
+        }).exceptionally(throwable -> {
+            ExceptionLogger.log(throwable);
+            return null;
         });
     }
+
 }

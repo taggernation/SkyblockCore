@@ -1,11 +1,12 @@
 package me.illusion.skyblockcore.spigot.listener;
 
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 import me.illusion.skyblockcore.spigot.SkyblockPlugin;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 
 public class DeathListener implements Listener {
 
@@ -16,10 +17,15 @@ public class DeathListener implements Listener {
     }
 
     @EventHandler
-    private void onDeath(PlayerDeathEvent event) {
-        Player player = event.getEntity();
+    private void onDeath(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
 
-        Location center = main.getPlayerManager().get(player).getIslandCenter();
-        player.teleport(center);
+        try {
+            Location center = main.getPlayerManager().get(player).getIslandCenter();
+            player.teleport(center);
+        } catch (Exception e) {
+            ExceptionLogger.log(e);
+        }
+
     }
 }

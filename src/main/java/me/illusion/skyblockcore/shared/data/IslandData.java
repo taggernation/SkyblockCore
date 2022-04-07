@@ -3,10 +3,10 @@ package me.illusion.skyblockcore.shared.data;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
+import me.illusion.skyblockcore.shared.sql.serialized.SerializedLocation;
 import me.illusion.skyblockcore.shared.storage.SerializedFile;
 import me.illusion.skyblockcore.shared.utilities.StringUtil;
 import me.illusion.skyblockcore.spigot.island.Island;
-import me.illusion.skyblockcore.spigot.island.generator.OreGenerator;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -20,23 +20,16 @@ public class IslandData implements Serializable {
     private final UUID id;
     @Setter
     private SerializedFile[] islandSchematic;
-    private transient final List<UUID> users = new ArrayList<>();
+    private transient List<UUID> users = new ArrayList<>();
     private final UUID owner;
-    private final List<OreGenerator> oreGenerators;
 
     @Setter
     private transient Island island;
     private String serialized;
 
+    @Setter
+    private SerializedLocation spawnPointRelativeToCenter;
 
-    /**
-     * Registers an OreGenerator
-     *
-     * @param generator - The ore generator
-     */
-    public void addGenerator(OreGenerator generator) {
-        oreGenerators.add(generator);
-    }
 
     /**
      * Adds a user to the island
@@ -55,15 +48,22 @@ public class IslandData implements Serializable {
      * @return the list of UUIDs
      */
     public List<UUID> getUsers() {
+        if (users == null)
+            users = new ArrayList<>();
+
         if (!users.isEmpty())
             return users;
 
         List<UUID> list = new ArrayList<>();
 
         String[] split = StringUtil.split(serialized, ' ');
+        System.out.println(serialized);
 
-        for (String str : split)
+        for (String str : split) {
+            if (str.equalsIgnoreCase("null"))
+                continue;
             list.add(UUID.fromString(str));
+        }
 
         users.addAll(list);
         return list;

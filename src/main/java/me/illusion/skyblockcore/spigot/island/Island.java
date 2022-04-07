@@ -2,9 +2,14 @@ package me.illusion.skyblockcore.spigot.island;
 
 import lombok.Getter;
 import me.illusion.skyblockcore.shared.data.IslandData;
+import me.illusion.skyblockcore.shared.sql.serialized.SerializedLocation;
 import me.illusion.skyblockcore.spigot.SkyblockPlugin;
+import me.illusion.skyblockcore.spigot.event.IslandSaveEvent;
+import me.illusion.skyblockcore.spigot.utilities.WorldUtils;
+import me.illusion.skyblockcore.spigot.utilities.schedulerutil.builders.ScheduleBuilder;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
+import org.bukkit.entity.Player;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -29,6 +34,11 @@ public class Island {
         this.data = data;
         this.world = world;
 
+        if (data.getSpawnPointRelativeToCenter() == null) {
+            data.setSpawnPointRelativeToCenter(new SerializedLocation());
+            setSpawnPoint(center);
+        }
+
         main.getIslandManager().register(this);
     }
 
@@ -39,8 +49,8 @@ public class Island {
         main.getPastingHandler().save(this, schem -> {
             data.setIslandSchematic(schem);
 
-            CompletableFuture.runAsync(this::saveData);
-            afterSave.run();
+            Bukkit.getPluginManager().callEvent(new IslandSaveEvent(this));
+            saveData().thenRun(afterSave);
         });
     }
 
@@ -48,28 +58,44 @@ public class Island {
      * Cleans the island, by regenerating its chunks
      */
     public void cleanIsland() {
-        World world = center.getWorld();
+        System.out.println("Cleaning island...");
 
-        int x1 = pointOne.getBlockX() >> 4;
-        int z1 = pointOne.getBlockZ() >> 4;
-        int x2 = pointTwo.getBlockX() >> 4;
-        int z2 = pointTwo.getBlockZ() >> 4;
+        WorldUtils
+                .unload(main, world)
+                .thenRun(() -> {
+                    WorldUtils.deleteRegionFolder(main, world);
+                    main.getIslandManager().unregister(this);
 
-        for (int x = x1; x <= x2; x++)
-            for (int z = z1; z <= z2; z++)
-                world.regenerateChunk(x, z);
+                    new ScheduleBuilder(main) // Intentional delay so we don't corrupt worlds by loading and unloading very fast
+                            .in(main.getSettings().getReleaseDelay()).ticks()
+                            .run(() -> main.getWorldManager().unregister(this.world))
+                            .sync()
+                            .start();
 
-        world.save();
+                });
 
-        main.getIslandManager().unregister(this);
-        main.getWorldManager().unregister(this.world);
+
+    }
+
+    public Location getSpawnPoint() {
+        return center.add(data.getSpawnPointRelativeToCenter().getLocation());
+    }
+
+    public void setSpawnPoint(Location location) {
+        Location relative = location.subtract(center);
+
+        data.getSpawnPointRelativeToCenter().update(relative);
+    }
+
+    public void teleport(Player player) {
+        player.teleport(getSpawnPoint());
     }
 
     /**
      * Saves Island data
      */
-    private void saveData() {
-        main.getStorageHandler().save(data.getId(), data, "ISLAND");
+    private CompletableFuture<Void> saveData() {
+        return main.getStorageHandler().save(data.getId(), data, "ISLAND");
     }
 
 }

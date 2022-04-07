@@ -2,21 +2,26 @@ package me.illusion.skyblockcore.spigot.pasting.handler;
 
 import com.google.common.io.Files;
 import me.illusion.skyblockcore.shared.storage.SerializedFile;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 import me.illusion.skyblockcore.spigot.SkyblockPlugin;
 import me.illusion.skyblockcore.spigot.island.Island;
 import me.illusion.skyblockcore.spigot.pasting.PastingHandler;
 import me.illusion.skyblockcore.spigot.pasting.PastingType;
+import me.illusion.skyblockcore.spigot.utilities.WorldUtils;
+import me.illusion.skyblockcore.spigot.utilities.schedulerutil.builders.ScheduleBuilder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
-import org.bukkit.WorldCreator;
+import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
+
+import static me.illusion.skyblockcore.shared.utilities.CollectionUtils.allOf;
 
 public class DefaultHandler implements PastingHandler {
 
@@ -27,78 +32,74 @@ public class DefaultHandler implements PastingHandler {
         this.main = main;
     }
 
-    private void paste(SerializedFile serializedFile, Location loc) {
-        File file = null;
-        try {
-            file = serializedFile.getFile().get();
-        } catch (InterruptedException | ExecutionException e) {
-            e.printStackTrace();
-        }
+    private CompletableFuture<Void> paste(SerializedFile serializedFile, String name) {
+        return serializedFile.getFile().thenAccept((file) -> {
+            if (extension == null)
+                extension = getExtension(file.getName());
 
-        if (extension == null)
-            extension = getExtension(file.getName());
+            // Obtain the region folder for the world
+            File regionFolder = new File(Bukkit.getWorldContainer() + File.separator + name + File.separator + "region");
 
-        World world = loc.getWorld();
+            writeFile(regionFolder, file);
+        });
+        // Re-load world
+    }
 
-        String name = world.getName();
-
-        // Obtain the region folder for the world
-        File regionFolder = new File(world.getWorldFolder() + File.separator + "region");
-
-        // Unload the world, to not cause issues
-        Bukkit.unloadWorld(world, false);
-
-        regionFolder.delete();
-        regionFolder.mkdir();
-
+    private void writeFile(File regionFolder, File finalFile) {
         // Create the new file
-        File newFile = new File(regionFolder, file.getName());
+        File newFile = new File(regionFolder, finalFile.getName());
 
         try {
             // Create the region file
             newFile.createNewFile();
-
             // Copy the file
-            Files.copy(file, newFile);
+            Files.copy(finalFile, newFile);
         } catch (IOException e) {
-            e.printStackTrace();
+            ExceptionLogger.log(e);
         }
-
-        // Re-load world
-        new WorldCreator(name).createWorld();
     }
 
     @Override
-    public void paste(SerializedFile[] file, Location loc) {
+    public CompletableFuture<Void> paste(SerializedFile[] file, String name, Vector point) {
+        List<CompletableFuture<?>> futures = new ArrayList<>();
+
+        File regionFolder = new File(Bukkit.getWorldContainer() + File.separator + name + File.separator + "region");
+
+        regionFolder.delete();
+        regionFolder.mkdir();
+
         for (SerializedFile f : file)
-            paste(f, loc);
+            futures.add(paste(f, name));
+
+
+        return CompletableFuture.runAsync(() -> {
+            allOf(futures).exceptionally((thr) -> {
+                ExceptionLogger.log(thr);
+                return null;
+            }).join();
+        });
     }
 
     @Override
     public void save(Island island, Consumer<SerializedFile[]> action) {
-        World world = Bukkit.getWorld(island.getWorld());
-        world.save();
-
-        main.getWorldManager().whenNextSave(($) -> {
-            File regionFolder = new File(world.getWorldFolder() + File.separator + "region");
-
-            List<SerializedFile> list = new ArrayList<>();
+        WorldUtils.save(main, island.getWorld(), (world) -> {
+            File regionFolder = new File(Bukkit.getWorldContainer() + File.separator + island.getWorld() + File.separator + "region");
 
             Location one = island.getPointOne();
             Location two = island.getPointTwo();
 
-            int xOne = one.getBlockX() >> 9;
-            int zOne = one.getBlockZ() >> 9;
-            int xTwo = two.getBlockX() >> 9;
-            int zTwo = two.getBlockZ() >> 9;
+            new ScheduleBuilder(main)
+                    .in(main.getSettings().getSaveDelay()).ticks()
+                    .run(() -> {
+                        File[] worldFiles = WorldUtils.getAllFilesBetween(regionFolder, one, two);
+                        SerializedFile[] files = SerializedFile.loadArray(worldFiles);
 
-            for (int x = xOne; x <= xTwo; x++)
-                for (int z = zOne; z <= zTwo; z++)
-                    list.add(new SerializedFile(new File(regionFolder, "r." + x + "." + z + "." + extension)));
+                        action.accept(files);
+                    })
+                    .sync()
+                    .start();
 
-            action.accept(list.toArray(new SerializedFile[]{}));
-        }, world.getName());
-
+        });
     }
 
     @Override
@@ -109,5 +110,19 @@ public class DefaultHandler implements PastingHandler {
     private String getExtension(String filename) {
         int index = filename.lastIndexOf(".");
         return filename.substring(index + 1);
+    }
+
+    private void wait(CountDownLatch latch) {
+        try {
+            WorldUtils.assertAsync();
+            latch.await();
+        } catch (InterruptedException e) {
+            ExceptionLogger.log(e);
+        }
+    }
+
+    @Override
+    public boolean requiresLoadedWorld() {
+        return false;
     }
 }

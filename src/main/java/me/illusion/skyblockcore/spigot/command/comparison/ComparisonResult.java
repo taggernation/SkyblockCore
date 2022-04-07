@@ -1,55 +1,96 @@
 package me.illusion.skyblockcore.spigot.command.comparison;
 
-import lombok.Getter;
-import me.illusion.skyblockcore.shared.utilities.StringUtil;
+import me.illusion.skyblockcore.spigot.command.SkyblockCommand;
 
-@Getter
+import java.util.*;
+
 public class ComparisonResult {
+    private final Map<String, SkyblockCommand> commands;
 
-    private boolean partiallyMatches;
-    private boolean fullyMatches;
-    private int[] wildcardPositions = null;
-
-    public ComparisonResult(String identifier, String test, String[] aliases) {
-        test(identifier, test);
-
-        if (!fullyMatches)
-            for (String str : aliases) {
-                test(str, test);
-
-                if (fullyMatches)
-                    break;
-            }
-
-        partiallyMatches = fullyMatches || partiallyMatches;
+    public ComparisonResult(Map<String, SkyblockCommand> commands) {
+        this.commands = commands;
     }
 
-    private void test(String identifier, String test) {
-        String[] identifierSplit = StringUtil.split(identifier, '.');
-        String[] testSplit = StringUtil.split(test, '.');
+    public List<String> match(String input) {
+        SortedSet<String> result = new TreeSet<>(new SmallestStringComparator());
+        String[] inputs = input.split("\\.");
 
-        int length = identifierSplit.length;
+        //in case input is empty
+        if (inputs.length == 0)
+            return Collections.emptyList();
 
-        wildcardPositions = new int[length];
-        int wildcard = 0;
 
-        for (int i = 0; i < length; i++) {
-            String word = identifierSplit[i];
-            String testWord = testSplit[i];
+        //case alias.arg
+        //first take out the alias
+        for (SkyblockCommand command : commands.values()) {
 
-            if ("*".equals(word)) { // If word is wildcard
-                wildcardPositions[wildcard++] = i;
+            if (findAliasingCommand(inputs[0], command) && searchArgs(inputs, command)) {
+                result.add(command.getIdentifier());
                 continue;
             }
 
-            if (!word.equalsIgnoreCase(testWord)) { // Check for match
-                if (testWord.startsWith(word))
-                    partiallyMatches = true;
-                fullyMatches = false;
-                return;
+            //look for identifiers
+            if (searchIds(inputs, command) && searchArgs(inputs, command))
+                result.add(command.getIdentifier());
+
+        }
+        return new ArrayList<>(result);
+    }
+
+    private boolean searchArgs(String[] inputs, SkyblockCommand command) {
+        String[] args = command.getIdentifier().split("\\.");
+
+        if (inputs.length > args.length) return false;
+        //inputs has to be smaller than the command for autocomplete to work
+        for (int index = 1; index < inputs.length; index++) {
+            if (args[index].equals("*")) {
+                continue;
+            }
+            if (!args[index].startsWith(inputs[index]))
+                return false;
+
+        }
+
+        return true;
+    }
+
+    /*
+    private boolean searchAliases(String input, SkyblockCommand command)
+    {
+        String[] aliases = command.getAliases();
+        for (String alias : aliases)
+        {
+            if (alias.startsWith(input))
+            {
+                return true;
             }
         }
-        fullyMatches = true;
-        System.arraycopy(wildcardPositions, 0, wildcardPositions, 0, wildcard);
+        return false;
+    }
+
+     */
+
+    private boolean searchIds(String[] inputs, SkyblockCommand command) {
+        String[] ids = command.getIdentifier().split("\\.");
+        String id = ids[0];
+        if (inputs.length == 1 && ids.length == 1)
+            return id.startsWith(inputs[0]);
+        return id.equals(inputs[0]);
+    }
+
+
+    private boolean findAliasingCommand(String input, SkyblockCommand command) {
+        String id = command.getIdentifier().split("\\.")[0];
+
+        SkyblockCommand it = commands.get(id);
+        if (it.getIdentifier().equals(id))
+            for (String alias : it.getAliases())
+                if (alias.equals(input))
+                    return true;
+
+
+        return false;
+
     }
 }
+

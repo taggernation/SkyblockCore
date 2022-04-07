@@ -4,8 +4,11 @@ import com.mongodb.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import me.illusion.skyblockcore.shared.storage.StorageHandler;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 import org.bson.Document;
 
+import java.io.File;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -16,16 +19,21 @@ public class MongoDBHandler implements StorageHandler {
     private MongoCollection<Document> islandStorage;
 
     @Override
-    public CompletableFuture<Boolean> setup(String ip, int port, String database, String username, String password) {
+    public CompletableFuture<Boolean> setup(File folder, Map<String, Object> map) {
         return CompletableFuture.supplyAsync(() -> {
+            String ip = map.get("ip").toString();
+            int port = Integer.parseInt(map.get("port").toString());
+            String database = map.get("database").toString();
+
             try {
                 mongoClient = new MongoClient(ip, port);
             } catch (Exception exception) {
-                exception.printStackTrace();
+                ExceptionLogger.log(exception);
                 return false;
             }
 
             this.database = mongoClient.getDatabase(database);
+            this.database.createCollection("islandData");
             islandStorage = this.database.getCollection("islandData");
             return true;
         });
@@ -55,9 +63,4 @@ public class MongoDBHandler implements StorageHandler {
         });
     }
 
-
-    @Override
-    public boolean isFileBased() {
-        return false;
-    }
 }

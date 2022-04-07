@@ -1,27 +1,22 @@
 package me.illusion.skyblockcore.spigot.data;
 
-import com.google.common.io.Files;
 import lombok.AccessLevel;
 import lombok.Getter;
 import me.illusion.skyblockcore.shared.data.IslandData;
 import me.illusion.skyblockcore.shared.data.PlayerData;
-import me.illusion.skyblockcore.shared.storage.SerializedFile;
+import me.illusion.skyblockcore.shared.sql.serialized.SerializedLocation;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 import me.illusion.skyblockcore.spigot.SkyblockPlugin;
+import me.illusion.skyblockcore.spigot.event.IslandCreateEvent;
+import me.illusion.skyblockcore.spigot.event.IslandLoadEvent;
 import me.illusion.skyblockcore.spigot.island.Island;
-import me.illusion.skyblockcore.spigot.sql.serialized.SerializedLocation;
+import me.illusion.skyblockcore.spigot.utilities.schedulerutil.builders.ScheduleBuilder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
-import org.bukkit.WorldCreator;
 import org.bukkit.entity.Player;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 
 @Getter
 public class SkyblockPlayer {
@@ -63,242 +58,101 @@ public class SkyblockPlayer {
         System.out.println("Loading data for " + getPlayer().getName());
 
         load("PLAYER", uuid).whenComplete((object, $) -> {
+            System.out.println("COMPLETE");
+            if (object != null && !(object instanceof PlayerData)) {
+                System.err.println("Object is not a player data, send the message below to the developer");
+                System.err.println(object.getClass().getName());
+                System.err.println(object);
+                return;
+            }
+
             data = (PlayerData) object;
 
             if (data == null) {
                 System.out.println("No PlayerData has been found, creating new data");
 
                 data = new PlayerData();
-                IslandData islandData = new IslandData(UUID.randomUUID(), uuid, new ArrayList<>());
-                sync(() -> loadIsland(islandData));
+                data.setPlayerId(uuid);
+                IslandData islandData = new IslandData(UUID.randomUUID(), uuid);
+                islandData.addUser(uuid);
+                sync(() -> main.getIslandManager().loadIsland(islandData)
+                        .thenAccept(island -> {
+                            Bukkit.getPluginManager().callEvent(new IslandCreateEvent(island));
+                            Bukkit.getPluginManager().callEvent(new IslandLoadEvent(island));
+                            this.island = island;
+                            this.islandCenter = island.getCenter();
+
+                            data.setIslandId(island.getData().getId());
+
+                            new ScheduleBuilder(main)
+                                    .in(1).seconds()
+                                    .run(this::teleportToIsland).sync().start();
+                        }));
                 return;
             }
 
             System.out.println("Loaded player data, loading island data");
-            load("ISLAND", data.getIslandId()).whenComplete((islandObject, $$) -> sync(() -> loadIsland((IslandData) islandObject)));
+            main.getIslandManager().pasteIsland(data.getIslandId(), uuid)
+                    .thenAccept(island -> {
+                        this.island = island;
+                        this.islandCenter = island.getCenter();
+                        Bukkit.getPluginManager().callEvent(new IslandLoadEvent(island));
 
+                        System.out.println("Loaded island data");
+
+
+                        sync(() -> {
+                            SerializedLocation last = data.getLastLocation(); // Obtains last location
+
+                            // Assign player location if not found
+                            if (last.getLocation() == null) {
+                                teleportToIsland();
+                                return;
+                            }
+
+                            // Teleports
+                            checkTeleport();
+                        });
+
+                    });
+
+        }).exceptionally(throwable -> {
+            System.out.println("Failed to load data for " + getPlayer().getName());
+            ExceptionLogger.log(throwable);
+            return null;
         });
-
-        /*
-        Player p = getPlayer(); // Obtain the Bukkit player
-        data = (PlayerData) load("PLAYER", uuid); // Load the player data
-        IslandData islandData; // Island data variable
-
-        boolean paste = true; // Default pasting as true
-
-        File folder = new File(main.getDataFolder() + File.separator + "cache"); // Create cache folder
-
-        if (data == null) { // If the player data is null (player never joined before)
-            data = new PlayerData(); // Create new data
-            islandData = new IslandData(UUID.randomUUID(), uuid, new ArrayList<>()); // Assign new island data
-            data.getInventory().updateArray(p.getInventory().getContents()); // Update serialized contents
-        } else { // If the player joined before
-            islandData = (IslandData) load("ISLAND", data.getIslandId()); // Load island data
-
-            // Obtain island members
-            List<UUID> members = islandData.getUsers();
-
-            // If any island member is online (island pasted)
-            for (UUID uuid : members)
-                if (!uuid.equals(this.uuid) && Bukkit.getPlayer(uuid) != null) {
-                    paste = false;
-                    break;
-                }
-        }
-
-        // Obtain island UUID
-        UUID uuid = islandData.getId();
-
-        // Premake island cache files
-        if (paste) {
-            File[] islandFiles = islandData.getIslandSchematic();
-
-            if (islandFiles == null)
-                islandFiles = main.getStartSchematic();
-
-            File[] files = createFiles(uuid, folder, islandFiles);
-
-            islandData.setIslandSchematic(files);
-        }
-
-        // Set the island UUID in the player data
-        data.setIslandId(uuid);
-
-        // Final copy of paste
-        boolean finalPaste = paste;
-
-        // Back to sync
-        Bukkit.getScheduler().runTask(main, () -> {
-            // Paste the island
-            if (finalPaste) {
-                String world = main.getWorldManager().assignWorld();
-                island = loadIsland(islandData, new WorldCreator(world).createWorld());
-            }
-
-            // Update the island internally (island not serialized)
-            islandData.setIsland(island);
-
-            // Obtain last player location
-            SerializedLocation last = data.getLastLocation();
-
-            // Assign player location if not found
-            if (last.getLocation() == null) {
-                Location loc = islandCenter;
-                last.update(loc);
-                data.getIslandLocation().update(loc);
-            }
-
-            // Update XP values (default 0)
-            p.setExp(data.getExperience());
-            p.setLevel(data.getExperienceLevel());
-
-            // Teleports
-            checkTeleport();
-            // Updates inventory
-            updateInventory();
-        });
-         */
     }
 
-    /**
-     * Loads island and finalizes player data
-     *
-     * @param islandData - The island data to load from
-     */
-    private void loadIsland(IslandData islandData) {
-        Player p = getPlayer(); // Obtains player
 
-        System.out.println("Loading island data for player " + p.getName());
-
-        data.setIslandId(islandData.getId()); // Updates Island ID in playerdata
-
-        boolean paste = true; // variable to store pasting
-
-        List<UUID> members = islandData.getUsers();
-
-        System.out.println("Island users: " + members);
-
-        // If any island member is online (island pasted)
-        for (UUID uuid : members)
-            if (!uuid.equals(this.uuid) && Bukkit.getPlayer(uuid) != null) {
-                paste = false;
-                break;
-            }
-
-        File folder = new File(main.getDataFolder() + File.separator + "cache"); // Create cache folder
-
-        // Pastes island if required
-        if (paste) {
-            SerializedFile[] islandFiles = islandData.getIslandSchematic(); // Obtains original files
-
-            if (islandFiles == null) // Assigns default if not found
-                islandFiles = SerializedFile.loadArray(main.getStartSchematic());
-
-            SerializedFile[] files = createFiles(islandData.getId(), folder, islandFiles); // Creates cache files
-
-            islandData.setIslandSchematic(files); // Updates schematic with cache files
-
-            String world = main.getWorldManager().assignWorld(); // Assigns world
-
-            System.out.println("Assigned world " + world + " for player " + p.getName());
-            island = loadIsland(islandData, new WorldCreator(world).generator(main.getEmptyWorldGenerator()).createWorld()); // Loads island
-        } else // If it doesn't need pasting
-            island = main.getIslandManager().getIslandFromId(islandData.getId()).orElse(null); // Obtains island from ID (loaded by a teammate)
-
-        islandData.setIsland(island); // Updates island in the island data
-
-        SerializedLocation last = data.getLastLocation(); // Obtains last location
-
-        // Assign player location if not found
-        if (last.getLocation() == null) {
-            Location loc = islandCenter;
-            last.update(loc);
-            data.getIslandLocation().update(loc);
+    public void teleportToIsland() {
+        if (!Bukkit.isPrimaryThread()) {
+            System.out.println("Detected async teleport - Calling it sync");
+            Bukkit.getScheduler().runTask(main, this::teleportToIsland);
+            return;
         }
 
-        // Update XP values (default 0)
-        p.setExp(data.getExperience());
-        p.setLevel(data.getExperienceLevel());
+        island.teleport(getPlayer());
 
-        // Teleports
-        checkTeleport();
-    }
-
-    /**
-     * Creates cache island files
-     *
-     * @param id     - The UUID (used for file name)
-     * @param folder - The folder where to write the files do (default - cache)
-     * @param files  - The files to put
-     * @return The new renamed files
-     */
-    private SerializedFile[] createFiles(UUID id, File folder, SerializedFile... files) {
-        File[] copyArray = new File[files.length]; // Makes an array of the copied files (rewritten files)
-
-        folder.getParentFile().mkdirs();
-        folder.mkdir(); // Creates the folder (if doesn't exist)
-
-        for (int i = 0; i < files.length; i++) { // Loops through files
-            SerializedFile serializedFile = files[i];
-            File file = null;
-            try {
-                file = serializedFile.getFile().get();
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
-            }
-
-            File copy = new File(folder, id + "_" + file.getName()); // Creates new file with renamed name
-
-            copyArray[i] = copy; // Marks copy internally
-
-            if (file.equals(copy) && file.exists())  // Checks for name equality
-                continue;
-
-            try {
-                if (!copy.exists()) // Creates empty file if it doesn't exist
-                    copy.createNewFile();
-                Files.copy(file, copy); // Copies bytes
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        return SerializedFile.loadArray(copyArray);
     }
 
     /**
      * Teleports player to last position
      */
     private void checkTeleport() {
-        System.out.println("Teleporting");
+        System.out.println("Teleporting to last location");
 
-        Player p = getPlayer();
-        Location lastLoc = data.getLastLocation().getLocation();
-        p.teleport(lastLoc);
+        Player player = getPlayer();
+        SerializedLocation last = data.getLastLocation();
+
+        String worldName = last.getWorldName();
+        Location location = last.getLocation();
+
+        if (worldName.startsWith("skyblockworld"))
+            location.setWorld(islandCenter.getWorld());
+
+        player.teleport(location);
     }
 
-    /**
-     * Pastes an island
-     *
-     * @param data  - The island data, used in the island object
-     * @param world - The world to paste the island on
-     * @return island object
-     */
-    private Island loadIsland(IslandData data, World world) {
-        Location center = new Location(world, 0, 128, 0);
-        int offset = main.getIslandConfig().getOverworldSettings().getMaxSize() >> 1;
-
-        Location one = center.add(-offset, -128, -offset);
-        Location two = center.add(offset, 128, offset);
-
-        System.out.println("Pasting island");
-        main.getPastingHandler().paste(data.getIslandSchematic(), center);
-
-        islandCenter = center;
-        System.out.println("Pasted Island.");
-
-        return new Island(main, one, two, center, data, world.getName());
-    }
 
     /**
      * Obtains a serialized object
@@ -306,6 +160,7 @@ public class SkyblockPlayer {
      * @return deserialized object
      */
     private CompletableFuture<Object> load(String table, UUID uuid) {
+        System.out.println("Loading " + table + " data for " + Bukkit.getPlayer(uuid).getName());
         return main.getStorageHandler().get(uuid, table);
     }
 
@@ -315,46 +170,16 @@ public class SkyblockPlayer {
      * Saves all the player data, and cleans the island if possible
      */
     public void save() {
-        Player p = getPlayer();
-        Location loc = p.getLocation();
+        Player player = getPlayer();
+        Location loc = player.getLocation();
 
-        data.setExperience(p.getExp());
-        data.setExperienceLevel(p.getLevel());
         data.getLastLocation().update(loc);
         data.getIslandLocation().update(loc);
 
         island.save(() -> {
-            System.out.println("Saving data");
-            CompletableFuture.runAsync(() -> saveObject(uuid, data));
-
-            boolean delete = true;
-
-            for (UUID uuid : island.getData().getUsers()) {
-                if (uuid.equals(this.uuid))
-                    continue;
-                if (Bukkit.getPlayer(uuid) == null)
-                    continue;
-                delete = false;
-                break;
-            }
-
-            if (delete)
-                island.cleanIsland();
-
-            System.out.println("Attempting to delete island files");
-
-            for (SerializedFile serializedFile : island.getData().getIslandSchematic()) {
-                File file = null;
-                try {
-                    file = serializedFile.getFile().get();
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-
-                if (file != null && file.exists())
-                    file.delete();
-            }
-
+            System.out.println("Saved island data");
+            saveObject(uuid, data);
+            main.getIslandManager().deleteIsland(island.getData().getId());
         });
 
 

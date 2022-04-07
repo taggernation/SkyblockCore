@@ -4,19 +4,21 @@ import lombok.Getter;
 import me.illusion.skyblockcore.bungee.command.SkyblockCommand;
 import me.illusion.skyblockcore.bungee.data.PlayerFinder;
 import me.illusion.skyblockcore.bungee.handler.MessagePacketHandler;
-import me.illusion.skyblockcore.bungee.listener.ConnectListener;
 import me.illusion.skyblockcore.bungee.listener.RedisListener;
-import me.illusion.skyblockcore.bungee.listener.SpigotListener;
+import me.illusion.skyblockcore.bungee.utilities.StorageUtils;
 import me.illusion.skyblockcore.bungee.utilities.YMLBase;
-import me.illusion.skyblockcore.bungee.utilities.database.JedisUtil;
+import me.illusion.skyblockcore.shared.dependency.DependencyDownloader;
+import me.illusion.skyblockcore.shared.dependency.JedisUtil;
 import me.illusion.skyblockcore.shared.packet.PacketManager;
 import me.illusion.skyblockcore.shared.packet.data.PacketDirection;
-import me.illusion.skyblockcore.shared.packet.impl.proxy.proxy.request.PacketRequestMessageSend;
-import me.illusion.skyblockcore.shared.sql.SQLUtil;
+import me.illusion.skyblockcore.shared.packet.impl.proxytoproxy.request.PacketRequestMessageSend;
+import me.illusion.skyblockcore.shared.storage.StorageHandler;
+import me.illusion.skyblockcore.shared.storage.StorageType;
+import me.illusion.skyblockcore.shared.utilities.ExceptionLogger;
 import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.config.Configuration;
 
-import java.sql.Connection;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
 @Getter
@@ -28,36 +30,46 @@ public class SkyblockBungeePlugin extends Plugin {
 
     private PlayerFinder playerFinder;
     private PacketManager packetManager;
-    private Connection mySQLConnection;
     private Configuration config;
     private JedisUtil jedisUtil;
     private RedisListener redisListener;
+    private StorageHandler storageHandler;
+    private DependencyDownloader dependencyDownloader;
 
     @Override
     public void onEnable() {
         enabled = true;
         config = new YMLBase(this, "bungee-config.yml").getConfiguration();
-        setupSQL();
 
-        if (!enabled)
-            return;
 
-        setupJedis();
+        dependencyDownloader = new DependencyDownloader(getDataFolder().getParentFile());
 
-        if (!enabled)
-            return;
+        dependencyDownloader.onDownload(() -> {
+            System.err.println("[SkyblockCore] Dependencies downloaded!");
+            System.err.println("[SkyblockCore] Since dependencies have been downloaded, you will need to restart your server.");
+            disable();
+        });
 
-        getProxy().getPluginManager().registerCommand(this, new SkyblockCommand(this));
-        getProxy().getPluginManager().registerListener(this, new ConnectListener());
-        packetManager = new PacketManager();
-        playerFinder = new PlayerFinder(this);
+        setupStorage().thenAccept(success -> {
+            if (!success)
+                return;
 
-        setupPackets();
+            setupJedis();
+
+            getProxy().getPluginManager().registerCommand(this, new SkyblockCommand(this));
+            packetManager = new PacketManager(getProxy().getName());
+            playerFinder = new PlayerFinder(this);
+
+            setupPackets();
+        });
+
     }
 
     private void setupPackets() {
-        packetManager.registerProcessor(PacketDirection.PROXY_TO_PROXY, new RedisListener(this));
-        packetManager.registerProcessor(PacketDirection.PROXY_TO_INSTANCE, new SpigotListener(this));
+        RedisListener redis = new RedisListener(this);
+
+        packetManager.registerProcessor(PacketDirection.PROXY_TO_PROXY, redis);
+        packetManager.registerProcessor(PacketDirection.PROXY_TO_INSTANCE, redis);
 
         packetManager.subscribe(PacketRequestMessageSend.class, new MessagePacketHandler());
     }
@@ -70,26 +82,27 @@ public class SkyblockBungeePlugin extends Plugin {
     /**
      * Opens the SQL connection async
      */
-    private void setupSQL() {
-        String host = config.getString("database.host", "");
-        String database = config.getString("database.database", "");
-        String username = config.getString("database.username", "");
-        String password = config.getString("database.password", "");
-        int port = config.getInt("database.port");
+    private CompletableFuture<Boolean> setupStorage() {
+        StorageType type = StorageType.valueOf(config.getString("database.type").toUpperCase(Locale.ROOT));
 
-        CompletableFuture.runAsync(() -> {
-            SQLUtil sql = new SQLUtil(host, database, username, password, port);
+        if (type == StorageType.SQLITE) {
+            System.err.println("Proxies are not supported for SQLite!");
+            return CompletableFuture.completedFuture(false);
+        }
 
-            if (!sql.openConnection()) {
-                getLogger().warning("Could not load SQL Database.");
-                getLogger().warning("This plugin requires a valid SQL database to work.");
-                disable();
-                return;
-            }
+        Class<? extends StorageHandler> clazz = type.getHandlerClass();
+        try {
+            storageHandler = clazz.newInstance();
 
-            sql.createTable();
-            mySQLConnection = sql.getConnection();
-        });
+            System.out.println("Created handler of type " + clazz.getSimpleName());
+            return storageHandler.setup(getDataFolder(), StorageUtils.asMap(config.getSection("database")));
+
+        } catch (InstantiationException | IllegalAccessException e) {
+            ExceptionLogger.log(e);
+        }
+
+        return CompletableFuture.supplyAsync(() -> false);
+
     }
 
     private void setupJedis() {
@@ -98,6 +111,12 @@ public class SkyblockBungeePlugin extends Plugin {
         if (!multiProxy)
             return;
 
+        dependencyDownloader.dependOn(
+                "redis.clients.Jedis",
+                "https://www.illusionthe.dev/dependencies/SkyblockDependencies.jar",
+                "SkyblockDependencies.jar"
+        );
+
         jedisUtil = new JedisUtil();
 
         String ip = config.getString("jedis.host");
@@ -105,7 +124,7 @@ public class SkyblockBungeePlugin extends Plugin {
         String password = config.getString("jedis.password", "");
 
 
-        if (!jedisUtil.connect(this, ip, port, password))
+        if (!jedisUtil.connect(ip, port, password))
             disable();
         else
             redisListener = new RedisListener(this);
