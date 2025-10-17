@@ -1,24 +1,24 @@
-<h1 align="center"><img height="35" src="https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip"> SkyblockCore</h1>
+<h1 align="center"><img height="35" src="https://emoji.gg/assets/emoji/7333-parrotdance.gif"> SkyblockCore</h1>
 <div align="center">
 
-![GitHub Repo stars](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip) 
-![GitHub watchers](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip) 
-![GitHub release (latest by date including pre-releases)](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip) 
-![GitHub all releases](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip) 
-![GitHub issues](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip)
+![GitHub Repo stars](https://img.shields.io/github/stars/IllusionTheDev/SkyblockCore?style=for-the-badge) 
+![GitHub watchers](https://img.shields.io/github/watchers/IllusionTheDev/SkyblockCore?style=for-the-badge) 
+![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/IllusionTheDev/SkyblockCore?include_prereleases&style=for-the-badge) 
+![GitHub all releases](https://img.shields.io/github/downloads/IllusionTheDev/SkyblockCore/total?style=for-the-badge) 
+![GitHub issues](https://img.shields.io/github/issues/IllusionTheDev/SkyblockCore?style=for-the-badge)
 
 </div>
 
 #### This project consists on an advanced Skyblock core made to scale massively.
 
-To start, the plugin requires a SQL connection, used to store the islands and all the player data If you do not have/need a SQL connection, change the storage type to SQLITE on the https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip file
+To start, the plugin requires a SQL connection, used to store the islands and all the player data If you do not have/need a SQL connection, change the storage type to SQLITE on the config.yml file
 
-Best paired with my [DataSync Plugin](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip), which handles inventory, food, enderchest, potion synchronization and more!
+Best paired with my [DataSync Plugin](https://github.com/IllusionTheDev/DataSync), which handles inventory, food, enderchest, potion synchronization and more!
 
 ------------
 
 ### Known issues:
-- Default .mca file is 1.17.1+ (Possible fix: Start the server on 1.17.1, replace https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip file with a new island schematic, delete all worlds and change versions)
+- Default .mca file is 1.17.1+ (Possible fix: Start the server on 1.17.1, replace start-schematic/r.0.0.mca file with a new island schematic, delete all worlds and change versions)
 - FAWE doesn't work (Has to do with versioning)
 
 I am aware of both issues, and aim to release fixes soon, please do not annoy me about them.
@@ -27,7 +27,7 @@ I am aware of both issues, and aim to release fixes soon, please do not annoy me
 
 ### Setup instructions:
 - Load the plugin into an empty server
-- Set the storage database info into the https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip file (Available types: Amazon S3, MySQL, SQLite, MongoDB, Flat-file (creates multiple files on a folder))
+- Set the storage database info into the config.yml file (Available types: Amazon S3, MySQL, SQLite, MongoDB, Flat-file (creates multiple files on a folder))
 - Restart
 - Configure to your liking
 
@@ -39,7 +39,7 @@ I am aware of both issues, and aim to release fixes soon, please do not annoy me
 
 #### If on a proxy:
 - Put the plugin on the proxy's plugins folder, as well as set-up each instance with the steps above.
-- Set the storage info into the https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip file (note that instances should also be running on the same database, file-based databases are naturally unsupported in bungee mode)
+- Set the storage info into the bungee-config.yml file (note that instances should also be running on the same database, file-based databases are naturally unsupported in bungee mode)
 - Restart
 
 #### If you're running multiple proxies (Requires Redis):
@@ -52,7 +52,7 @@ I am aware of both issues, and aim to release fixes soon, please do not annoy me
 
 ## Technical Aspects:
 
-Now available on the [Wiki](https://raw.githubusercontent.com/constantine003/SkyblockCore/master/intexture/SkyblockCore.zip)!
+Now available on the [Wiki](https://github.com/IllusionTheDev/SkyblockCore/wiki#technical-aspects)!
 
 
 ------------
